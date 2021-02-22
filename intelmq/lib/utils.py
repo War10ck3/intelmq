@@ -30,6 +30,9 @@ import traceback
 import warnings
 import zipfile
 from typing import Any, Dict, Generator, Iterator, Optional, Sequence, Union
+from pathlib import Path
+import importlib
+import inspect
 
 import dateutil.parser
 from dateutil.relativedelta import relativedelta
@@ -44,6 +47,7 @@ __all__ = ['base64_decode', 'base64_encode', 'decode', 'encode',
            'reverse_readline', 'error_message_from_exc', 'parse_relative',
            'RewindableFileHandle',
            'file_name_from_response',
+           'list_all_bots',
            ]
 
 # Used loglines format
@@ -808,3 +812,51 @@ def file_name_from_response(response: requests.Response) -> str:
     except KeyError:
         file_name = response.url.split("/")[-1]
     return file_name
+
+
+def list_all_bots() -> str:
+    mod = importlib.import_module('intelmq.bots')
+    dirs = ['collectors', 'parsers', 'experts', 'outputs']
+    allowed_types = ['bool', 'NoneType', 'str', 'int']
+    bot_types = [
+        'CollectorBot',
+        'ParserBot',
+        'OutputBot',
+        'Bot'
+    ]
+    root = mod.__path__[0]
+    root_dict = {}
+
+    for d in dirs:
+        root_dict[d.capitalize()] = {}
+        for dirs in os.listdir(os.path.join(root, d)):
+            bot = Path(os.path.join(root, d, dirs))
+            if bot.is_dir() and "__" not in bot.name:
+                for files in os.listdir(bot):
+                    f = Path(files)
+                    if (f.suffix == ".py") and ("__" not in f.name):
+                        mod = importlib.import_module("intelmq.bots.{}.{}.{}".format(d, bot.parts[-1:][0], f.name[0:-3]))
+                        if hasattr(mod, 'BOT'):
+                            name = mod.BOT.__name__
+                            desc = mod.BOT.__doc__
+                            keys = {}
+                            for prop, val in vars(mod.BOT).items():
+                                if prop.startswith("_"):
+                                    continue
+
+                                if type(getattr(mod.BOT, prop)).__name__ not in allowed_types:
+                                    continue
+
+                                keys[prop] = val
+
+                            for t in bot_types:
+                                if name == t:
+                                    continue
+                                name = name.replace(t, '')
+
+                            root_dict[d.capitalize()][name] = {
+                                "module": mod.__name__,
+                                "description": desc,
+                                "parameters": keys
+                            }
+    return root_dict
